@@ -1,0 +1,12 @@
+*.pytest_cache
+*.egg-info
+**/dist
+**/build
+**/_build
+**/__pycache__
+**/.cache
+**/.eggs
+.mypy_cache
+**/.DS_Store
+**/.vscode
+**/*.code-workspace
