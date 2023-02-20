@@ -1,9 +1,9 @@
 from datetime import date, time
-from exchange_1c import dumps, File, Section, Token, String, Date, Time
+from exchange_1c import dump, File, Section, Token, String, Date, Time
 
 
 def test_dump_token():
-    file = dumps(
+    file = dump(
         File(
             Section(
                 Token('1CClientBankExchange'),
@@ -15,7 +15,7 @@ def test_dump_token():
 
 
 def test_dump_string():
-    file = dumps(
+    file = dump(
         File(
             Section(
                 String('Номер', '0'),
@@ -27,7 +27,7 @@ def test_dump_string():
 
 
 def test_dump_date():
-    file = dumps(
+    file = dump(
         File(
             Section(
                 Date('КвитанцияДата', date(1970, 1, 1)),
@@ -39,7 +39,7 @@ def test_dump_date():
 
 
 def test_dump_time():
-    file = dumps(
+    file = dump(
         File(
             Section(
                 Time('КвитанцияВремя', time(1, 1, 1)),
@@ -51,7 +51,7 @@ def test_dump_time():
 
 
 def test_dump_file():
-    file = dumps(
+    file = dump(
         File(
             Section(
                 Token('1CClientBankExchange'),

@@ -1,17 +1,18 @@
 import re
-from datetime import datetime, date, time
+from datetime import date, time
 from typing import Tuple, List, Any, Type, TypeVar, Generic
 from itertools import zip_longest
 
 
 V = TypeVar('V')
-T = TypeVar('T', bound='String')
+T = TypeVar('T', bound='Value')
 
 
-class String(Generic[V]):
-    _re = re.compile(r'(.+?): (.+)')
+class Value(Generic[V]):
+    _re = r'(.+?): (.+)'
 
     _sections: List[Tuple[str, str]] = [
+        ('1CClientBankExchange', 'КонецФайла'),
         ('СекцияРасчСчет', 'КонецРасчСчет'),
         ('СекцияДокумент', 'КонецДокумента'),
     ]
@@ -32,62 +33,92 @@ class String(Generic[V]):
         return bool(self._value)
 
     def __repr__(self) -> str:
-        return f'{self._key!r}: {self._value!r}'
+        return f'{self.__class__.__name__} <{self._key}: {self._value!r}>'
 
     def dump(self) -> str:
         return f'{self._key}: {self.dump_value()}'
 
     def dump_value(self) -> str:
-        return str(self._value)
+        raise NotImplementedError()
 
     @classmethod
-    def load(cls: Type[T], string) -> T:
-        match = cls._re.match(string)
+    def load(cls: Type[T], string: str) -> T:
+        match = re.fullmatch(cls._re, string)
 
-        if match:
-            return cls(match.group(1), match.group(2))
+        if not match:
+            raise ValueError()
+
+        return cls(match.group(1), cls.load_value(match.group(2)))
 
     @classmethod
-    def is_section_start(cls, key) -> bool:
+    def load_value(cls, value: str) -> V:
+        raise NotImplementedError()
+
+    @classmethod
+    def is_section_start(cls, key: str) -> bool:
         return key in (k for (k, _) in cls._sections)
 
     @classmethod
-    def is_section_end(cls, key) -> bool:
+    def is_section_end(cls, key: str) -> bool:
         return key in (k for (_, k) in cls._sections)
 
+    def __eq__(self, other: 'Value') -> bool:
+        return self.key == other.key and self.value == other.value
 
-class Date(String[date]):
-    _format = '%d.%m.%Y'
-    _re = re.compile(r'(.+?): (\d{2}:\d{2}:\d{4})')
+
+class String(Value[str]):
+    @classmethod
+    def load_value(cls, string: str) -> str:
+        return string
 
     def dump_value(self) -> str:
-        return self._value.strftime(self._format)
-
-    @classmethod
-    def load(cls, string) -> 'Date':
-        match = cls._re.match(string)
-
-        if match:
-            return cls(match.group(1), datetime.strptime(match.group(2), cls._format).date())
+        return self._value
 
 
-class Time(String[time]):
-    _format = '%H:%M:%S'
-    _re = re.compile(r'(.+?): (\d{2}:\d{2}:\d{2})')
+class Date(Value[date]):
+    _date_format = r'%d.%m.%Y'
+    _date_re = r'(\d{2})\.(\d{2})\.(\d{4})'
 
     def dump_value(self) -> str:
-        return self._value.strftime(self._format)
+        return self._value.strftime(self._date_format)
 
     @classmethod
-    def load(cls, string) -> 'Time':
-        match = cls._re.match(string)
+    def load_value(cls, string: str) -> date:
+        match = re.fullmatch(cls._date_re, string)
 
-        if match:
-            return cls(match.group(1), datetime.strptime(match.group(2), cls._format).time())
+        if not match:
+            raise ValueError()
+
+        return date(
+            int(match.group(3)),
+            int(match.group(2)),
+            int(match.group(1)),
+        )
 
 
-class Token(String[bool]):
-    _re = None
+class Time(Value[time]):
+    _time_format = r'%H:%M:%S'
+    _time_re = r'(\d{2}):(\d{2}):(\d{2})'
+
+    def dump_value(self) -> str:
+        return self._value.strftime(self._time_format)
+
+    @classmethod
+    def load_value(cls, string: str) -> time:
+        match = re.fullmatch(cls._time_re, string)
+
+        if not match:
+            raise ValueError()
+
+        return time(
+            int(match.group(1)),
+            int(match.group(2)),
+            int(match.group(3)),
+        )
+
+
+class Token(Value[bool]):
+    _re = r'\w+'
 
     def __init__(self, key, value=True):
         super().__init__(key, value)
@@ -99,20 +130,36 @@ class Token(String[bool]):
         return True
 
     @classmethod
-    def load(cls, string) -> 'Token':
+    def load(cls, string: str) -> 'Token':
+        match = re.fullmatch(cls._re, string)
+
+        if not match:
+            raise ValueError()
+
         return cls(string)
+
+    @classmethod
+    def load_value(cls, string) -> bool:
+        return True
 
 
 class Section:
-    def __init__(self, *strings: String[Any]):
-        self._strings = list(strings)
+    def __init__(self, *values: Value[Any]):
+        self._values = list(values)
 
     @property
-    def strings(self) -> List[String[Any]]:
-        return self._strings
+    def values(self) -> List[Value[Any]]:
+        return self._values
 
     def dump(self) -> str:
-        return '\r\n'.join(value.dump() for value in self._strings if value)
+        return '\r\n'.join(value.dump() for value in self._values if value)
+
+    def __eq__(self, other: 'Section') -> bool:
+        for index, value in enumerate(self.values):
+            if value != other.values[index]:
+                return False
+
+        return True
 
 
 class File:
@@ -123,34 +170,44 @@ class File:
     def sections(self) -> List[Section]:
         return self._sections
 
-    def dumps(self):
+    def dump(self):
         return '\r\n'.join(section.dump() for section in self._sections if section)
 
+    def __eq__(self, other: 'File') -> bool:
+        for index, section in enumerate(self.sections):
+            if section != other.sections[index]:
+                return False
 
-def dumps(file) -> str:
-    return file.dumps()
+        return True
+
+
+def dump(file: File) -> str:
+    return file.dump()
 
 
 def load(string: str) -> File:
-    lines = string.split('\r\n')
-
     sections: List[Section] = []
+
+    lines = string.strip('\r\n').split('\r\n')
 
     for line, next_line in zip_longest(lines, lines[1:]):
         value = None
 
         for cls in Token, Date, Time:
-            if cls._re.match(line):
+            try:
                 value = cls.load(line)
+            except ValueError:
+                pass
 
         if value is None:
             value = String.load(line)
 
-        if (not sections or
-                String.is_section_start(value.key) or
-                String.is_section_end(value.key) and not String.is_section_start(next_line)):
+        if Value.is_section_start(value.key) or not sections:
             sections.append(Section())
 
-        sections[-1].strings.append(value)
+        sections[-1].values.append(value)
+
+        if Value.is_section_end(value.key) and next_line and not Value.is_section_start(next_line):
+            sections.append(Section())
 
     return File(*sections)
